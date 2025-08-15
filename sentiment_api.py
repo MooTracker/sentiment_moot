@@ -63,7 +63,11 @@ def normalize_slang(text):
         'santuy': 'santai',
         'kepo': 'ingin tahu',
         'php': 'pemberi harapan palsu',
-        'bucin': 'budak cinta'
+        'bucin': 'budak cinta',
+        # Tambahan kata positif yang sering dipakai
+        'seneng': 'senang', 'senang': 'senang',
+        'bahagia': 'bahagia', 'happy': 'senang',
+        'kamaren': 'kemarin', 'kemaren': 'kemarin'
     }
     
     # Convert to lowercase
@@ -112,13 +116,20 @@ def enhanced_keyword_analysis(normalized_text, original_text):
     """Enhanced keyword analysis untuk bahasa Indonesia + slang"""
     text_lower = normalized_text.lower()
     
-    # Positive keywords (diperbanyak)
+    # Positive keywords (diperbanyak dan lebih sensitif)
     positive_words = [
         "senang", "bahagia", "happy", "mantap", "bagus", "keren", "suka", "cinta", "love",
         "amazing", "luar biasa", "hebat", "fantastis", "sempurna", "excellent", "good",
         "positif", "optimis", "gembiraan", "kebahagiaan", "sukses", "berhasil", "menang",
         "excited", "antusias", "semangat", "motivasi", "inspirasi", "grateful", "bersyukur",
-        "mantul", "jos", "top", "juara", "recommended", "worth it", "puas", "satisfied"
+        "mantul", "jos", "top", "juara", "recommended", "worth it", "puas", "satisfied",
+        "gembira", "asyik", "asik", "cool", "nice", "wonderful", "great", "awesome"
+    ]
+    
+    # Strong positive words (kata yang sangat positif)
+    strong_positive_words = [
+        "banget", "sangat", "luar biasa", "fantastis", "sempurna", "amazing", "awesome",
+        "gembira", "bahagia banget", "senang banget", "happy banget"
     ]
     
     # Negative keywords (diperbanyak)
@@ -141,8 +152,13 @@ def enhanced_keyword_analysis(normalized_text, original_text):
     
     # Count sentiment words
     positive_count = sum(1 for word in positive_words if word in text_lower)
+    strong_positive_count = sum(1 for word in strong_positive_words if word in text_lower)
     negative_count = sum(1 for word in negative_words if word in text_lower)
     neutral_count = sum(1 for word in neutral_words if word in text_lower)
+    
+    # Check for combinations like "senang banget"
+    if "senang banget" in text_lower or "bahagia banget" in text_lower or "happy banget" in text_lower:
+        strong_positive_count += 2
     
     # Check for negations
     has_negation = any(neg in text_lower for neg in negation_words)
@@ -155,14 +171,16 @@ def enhanced_keyword_analysis(normalized_text, original_text):
         elif negative_count > positive_count:
             return 4  # Less negative
     
-    # Calculate sentiment score
-    if positive_count > negative_count + neutral_count:
+    # Calculate sentiment score with strong positive bonus
+    total_positive = positive_count + (strong_positive_count * 2)  # Strong words worth double
+    
+    if total_positive > negative_count + neutral_count:
         return 5  # Strong positive
-    elif positive_count > negative_count:
+    elif total_positive > negative_count:
         return 4  # Mild positive
-    elif negative_count > positive_count + neutral_count:
+    elif negative_count > total_positive + neutral_count:
         return 1  # Strong negative
-    elif negative_count > positive_count:
+    elif negative_count > total_positive:
         return 2  # Mild negative
     else:
         return 3  # Neutral
