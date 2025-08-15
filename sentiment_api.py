@@ -3,8 +3,11 @@ from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 import re
+import os
 
-app = FastAPI()
+app = FastAPI(title="Indonesian Sentiment Analysis API", 
+              description="API untuk analisis sentimen bahasa Indonesia dengan dukungan bahasa gaul",
+              version="1.0.0")
 
 # Global variable untuk model (akan diload jika tersedia)
 model = None
@@ -28,6 +31,21 @@ def load_model():
 
 # Try to load model on startup
 load_model()
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "Indonesian Sentiment Analysis API", 
+        "version": "1.0.0",
+        "docs": "/docs",
+        "model_loaded": model_loaded
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "model_loaded": model_loaded}
 
 class TextRequest(BaseModel):
     text: str
