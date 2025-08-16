@@ -15,19 +15,43 @@ tokenizer = None
 model_loaded = False
 
 def load_model():
-    """Try to load IndoBERTweet, fallback to enhanced keyword if failed"""
+    """Try to load IndoBERT sentiment model, fallback to enhanced keyword if failed"""
     global model, tokenizer, model_loaded
-    try:
-        from transformers import AutoTokenizer, AutoModelForSequenceClassification
-        print("Trying to load IndoBERTweet model...")
-        tokenizer = AutoTokenizer.from_pretrained("indobenchmark/indobertweet-sentiment-classifier")
-        model = AutoModelForSequenceClassification.from_pretrained("indobenchmark/indobertweet-sentiment-classifier")
-        model_loaded = True
-        print("IndoBERTweet model loaded successfully!")
-    except Exception as e:
-        print(f"Failed to load IndoBERTweet: {e}")
-        print("Using enhanced keyword-based analysis instead")
-        model_loaded = False
+    
+    # List model alternatif yang bisa dicoba
+    model_options = [
+        "indolem/indobert-base-uncased",  # Model yang lebih umum dan pasti tersedia
+        "cahya/bert-base-indonesian-1.5G",  # Alternative Indonesian BERT
+        "mdhugol/indonesia-bert-sentiment-classification"  # Specific sentiment model
+    ]
+    
+    for model_name in model_options:
+        try:
+            print(f"🔄 Trying to load model: {model_name}")
+            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            
+            # Load tokenizer
+            print(f"📥 Downloading tokenizer for {model_name}...")
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            print("✅ Tokenizer loaded successfully!")
+            
+            # Load model
+            print(f"📥 Downloading model {model_name} (this may take a while)...")
+            model = AutoModelForSequenceClassification.from_pretrained(model_name)
+            print("✅ Model loaded successfully!")
+            
+            model_loaded = True
+            print(f"🎉 {model_name} ready for sentiment analysis!")
+            return  # Exit jika berhasil
+            
+        except Exception as e:
+            print(f"❌ Failed to load {model_name}: {e}")
+            continue  # Coba model berikutnya
+    
+    # Jika semua model gagal
+    print("❌ All models failed to load")
+    print("🔄 Using enhanced keyword-based analysis instead")
+    model_loaded = False
 
 # Try to load model on startup
 load_model()
@@ -35,17 +59,29 @@ load_model()
 @app.get("/")
 async def root():
     """Root endpoint"""
+    model_name = "Unknown"
+    if model_loaded and model is not None:
+        model_name = model.config.name_or_path if hasattr(model.config, 'name_or_path') else "Indonesian BERT Model"
+    
     return {
         "message": "Indonesian Sentiment Analysis API", 
         "version": "1.0.0",
         "docs": "/docs",
-        "model_loaded": model_loaded
+        "model_loaded": model_loaded,
+        "model_name": model_name if model_loaded else "Enhanced Keyword Analysis",
+        "model_type": "🤖 AI Model" if model_loaded else "📝 Keyword Analysis",
+        "status": "🎉 Ready!" if model_loaded else "📝 Keyword Ready!"
     }
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "model_loaded": model_loaded}
+    return {
+        "status": "healthy", 
+        "model_loaded": model_loaded,
+        "model_type": "IndoBERTweet" if model_loaded else "Enhanced Keyword Analysis",
+        "ready": True
+    }
 
 class TextRequest(BaseModel):
     text: str
@@ -104,31 +140,55 @@ def analyze_sentiment(text):
     # Normalisasi kata gaul
     normalized_text = normalize_slang(text)
     
+    # Debug info
+    print(f"🔍 Analyzing: '{text}'")
+    print(f"🔧 Normalized: '{normalized_text}'")
+    print(f"🤖 Model loaded: {model_loaded}")
+    
     # Coba gunakan IndoBERTweet jika tersedia
-    if model_loaded and model is not None:
+    if model_loaded and model is not None and tokenizer is not None:
         try:
             import torch
+            print("🎯 Using IndoBERTweet model...")
+            
+            # Tokenize input
             inputs = tokenizer(normalized_text, return_tensors="pt", truncation=True, padding=True, max_length=512)
             
+            # Get prediction
             with torch.no_grad():
                 outputs = model(**inputs)
                 logits = outputs.logits
+                probabilities = torch.softmax(logits, dim=1)
                 pred = torch.argmax(logits, dim=1).item()
+                confidence = torch.max(probabilities).item()
+            
+            print(f"📊 IndoBERTweet prediction: {pred} (confidence: {confidence:.3f})")
+            print(f"📊 Probabilities: {probabilities.numpy()}")
             
             # Mapping label IndoBERTweet ke rating bintang
+            # IndoBERTweet: 0=negative, 1=neutral, 2=positive
             if pred == 2:  # positive
-                return 5
+                result = 5 if confidence > 0.8 else 4
+                print(f"✅ Result: {result} stars (Positive)")
+                return result
             elif pred == 1:  # neutral
-                return 3
-            else:  # negative
-                return 1
+                result = 3
+                print(f"😐 Result: {result} stars (Neutral)")
+                return result
+            else:  # negative (pred == 0)
+                result = 1 if confidence > 0.8 else 2
+                print(f"❌ Result: {result} stars (Negative)")
+                return result
                 
         except Exception as e:
-            print(f"Error using IndoBERTweet: {e}")
-            # Fallback ke enhanced keyword
+            print(f"⚠️ Error using IndoBERTweet: {e}")
+            print("🔄 Falling back to keyword analysis...")
     
     # Enhanced keyword-based analysis (fallback)
-    return enhanced_keyword_analysis(normalized_text, text)
+    print("🔤 Using enhanced keyword analysis...")
+    result = enhanced_keyword_analysis(normalized_text, text)
+    print(f"📝 Keyword analysis result: {result} stars")
+    return result
 
 def enhanced_keyword_analysis(normalized_text, original_text):
     """Enhanced keyword analysis untuk bahasa Indonesia + slang"""
