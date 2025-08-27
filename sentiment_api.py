@@ -1,5 +1,6 @@
 # filepath: [sentiment_api.py](http://_vscodecontentref_/0)
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware  # ← TAMBAH INI
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 import re
@@ -8,6 +9,15 @@ import os
 app = FastAPI(title="Indonesian Sentiment Analysis API", 
               description="API untuk analisis sentimen bahasa Indonesia dengan dukungan bahasa gaul",
               version="1.0.0")
+
+# ← TAMBAH CORS MIDDLEWARE
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # Global variable untuk model (akan diload jika tersedia)
 model = None
@@ -18,11 +28,11 @@ def load_model():
     """Try to load IndoBERT sentiment model, fallback to enhanced keyword if failed"""
     global model, tokenizer, model_loaded
     
-    # List model alternatif yang bisa dicoba
+    # List model alternatif yang bisa dicoba - PRIORITAS MODEL SENTIMENT
     model_options = [
-        "indolem/indobert-base-uncased",  # Model yang lebih umum dan pasti tersedia
-        "cahya/bert-base-indonesian-1.5G",  # Alternative Indonesian BERT
-        "mdhugol/indonesia-bert-sentiment-classification"  # Specific sentiment model
+        "mdhugol/indonesia-bert-sentiment-classification",  # PRIORITAS: Model khusus sentiment
+        "ayameRushia/bert-base-indonesian-1.5G-sentiment-analysis-smsa",  # Alternative sentiment model
+        "indolem/indobert-base-uncased",  # Fallback: Base model
     ]
     
     for model_name in model_options:
@@ -162,23 +172,44 @@ def analyze_sentiment(text):
                 pred = torch.argmax(logits, dim=1).item()
                 confidence = torch.max(probabilities).item()
             
-            print(f"📊 IndoBERTweet prediction: {pred} (confidence: {confidence:.3f})")
+            print(f"📊 Model prediction: {pred} (confidence: {confidence:.3f})")
             print(f"📊 Probabilities: {probabilities.numpy()}")
             
-            # Mapping label IndoBERTweet ke rating bintang
-            # IndoBERTweet: 0=negative, 1=neutral, 2=positive
-            if pred == 2:  # positive
-                result = 5 if confidence > 0.8 else 4
-                print(f"✅ Result: {result} stars (Positive)")
+            # Dynamic mapping berdasarkan jumlah kelas model
+            num_classes = logits.shape[1]
+            print(f"🔢 Number of classes: {num_classes}")
+            
+            if num_classes == 3:
+                # 3-class model: 0=negative, 1=neutral, 2=positive (standard)
+                if pred == 2:  # positive
+                    result = 5 if confidence > 0.8 else 4
+                    print(f"✅ Result: {result} stars (Positive)")
+                    return result
+                elif pred == 1:  # neutral
+                    result = 3
+                    print(f"😐 Result: {result} stars (Neutral)")
+                    return result
+                else:  # negative (pred == 0)
+                    result = 1 if confidence > 0.8 else 2
+                    print(f"❌ Result: {result} stars (Negative)")
+                    return result
+            
+            elif num_classes == 5:
+                # 5-class model: direct mapping to stars
+                result = pred + 1  # 0-4 -> 1-5 stars
+                print(f"⭐ Result: {result} stars (Direct mapping)")
                 return result
-            elif pred == 1:  # neutral
-                result = 3
-                print(f"😐 Result: {result} stars (Neutral)")
-                return result
-            else:  # negative (pred == 0)
-                result = 1 if confidence > 0.8 else 2
-                print(f"❌ Result: {result} stars (Negative)")
-                return result
+            
+            else:
+                # Binary or other models - convert to 1-5 scale
+                if pred == 1:  # positive (binary)
+                    result = 5 if confidence > 0.8 else 4
+                    print(f"✅ Result: {result} stars (Positive)")
+                    return result
+                else:  # negative (binary)
+                    result = 1 if confidence > 0.8 else 2
+                    print(f"❌ Result: {result} stars (Negative)")
+                    return result
                 
         except Exception as e:
             print(f"⚠️ Error using IndoBERTweet: {e}")
